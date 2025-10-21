@@ -1,0 +1,99 @@
+# ───────────────────────────────
+# OS / Editor junk
+# ───────────────────────────────
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.idea/
+.vscode/
+*.log
+
+# ───────────────────────────────
+# Python (worker)
+# ───────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.spec
+*.egg-info/
+.eggs/
+build/
+dist/
+.env
+venv/
+.venv/
+pip-wheel-metadata/
+coverage/
+htmlcov/
+.mypy_cache/
+.pytest_cache/
+
+# SQLite / data / cache
+*.db
+*.sqlite
+data/
+cache/
+*.db-journal
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
+
+# ───────────────────────────────
+# Node / Tauri (desktop)
+# ───────────────────────────────
+node_modules/
+dist/
+out/
+.pnp/
+.pnp.js
+.pnp.data.json
+.pnpm-debug.log
+package-lock.json
+yarn.lock
+
+# Build artifacts
+apps/desktop/src-tauri/target/
+target/
+*.app
+*.exe
+*.msi
+*.dmg
+*.AppImage
+*.deb
+*.rpm
+
+# Tauri bundler output
+*.zip
+*.tar.gz
+
+# ───────────────────────────────
+# Environment & Config
+# ───────────────────────────────
+.env.local
+.env.production
+.env.development
+.env.test
+config.json
+secrets.json
+credentials.json
+token.json
+
+# ───────────────────────────────
+# Logs / reports
+# ───────────────────────────────
+*.log
+logs/
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# ───────────────────────────────
+# GitHub / Misc
+# ───────────────────────────────
+*.bak
+*.tmp
+*.old
+*.orig
