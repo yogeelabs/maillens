@@ -1,5 +1,7 @@
 from fastapi import Body, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+from ingest.runner import start_emlx, cancel_running, is_running
 from db.init_db import init_db
 from ingest.emlx import ingest_emlx_folder
 from utils.progress import get as get_progress
@@ -23,21 +25,66 @@ def api_init_db():
     init_db()
     return {"ok": True}
 
-@app.post("/ingest/emlx")
-def api_ingest_emlx(payload: str | dict = Body(...)):
-    if isinstance(payload, str):
-        path = payload
-        limit = None
-    else:
-        path = payload.get("path") if payload else None
-        limit = payload.get("limit") if payload else None
-    if not path:
-        raise HTTPException(status_code=400, detail="path is required")
-    return ingest_emlx_folder(path, limit=limit)
+class IngestRequest(BaseModel):
+    source: str  # "emlx" | "mbox" | ...
+    path: str
+
+@app.post("/ingest/start")
+def api_ingest_start(req: IngestRequest):
+    if req.source != "emlx":
+        raise HTTPException(status_code=400, detail="unsupported_source")
+    try:
+        start_emlx(req.path)
+        return {"ok": True, "status": "started"}
+    except RuntimeError as e:
+        raise HTTPException(status_code=409, detail=str(e))
 
 @app.get("/progress")
 def api_progress():
-    return get_progress()
+    p = get_progress()
+    p["running"] = is_running()
+    return p
+
+@app.post("/cancel")
+def api_cancel():
+    if not is_running():
+        return {"ok": False, "status": "idle"}
+    cancel_running()
+    return {"ok": True, "status": "cancelling"}
+
+@app.get("/stats")
+def api_stats():
+    from db.connection import connect
+    con = connect(); cur = con.cursor()
+    cur.execute("SELECT COUNT(*) FROM emails")
+    total = cur.fetchone()[0]
+
+    def _safe_count(col, val=1):
+        try:
+            cur.execute(f"SELECT COUNT(*) FROM emails WHERE {col}=?", (val,))
+            return cur.fetchone()[0]
+        except Exception:
+            return 0
+
+    flagged = _safe_count("is_flagged")
+    unread  = _safe_count("is_read", 0)
+    junk    = _safe_count("is_junk", 1)
+
+    cur.execute("SELECT COUNT(DISTINCT from_email) FROM emails WHERE from_email IS NOT NULL AND from_email <> ''")
+    unique_senders = cur.fetchone()[0]
+
+    cur.execute("SELECT MAX(date_ts) FROM emails")
+    latest_ts = cur.fetchone()[0]
+
+    con.close()
+    return {
+        "total": total,
+        "flagged": flagged,
+        "unread": unread,
+        "junk": junk,
+        "unique_senders": unique_senders,
+        "latest_ts": latest_ts,
+    }
 
 @app.get("/emails")
 def api_emails(limit: int = 50):
