@@ -39,6 +39,11 @@ cache/
 *.sqlite-journal
 *.sqlite-wal
 *.sqlite-shm
+*.db-wal
+*.db-shm
+*.db-wal
+*.db-shm
+
 
 # ───────────────────────────────
 # Node / Tauri (desktop)
