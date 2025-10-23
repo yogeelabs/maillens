@@ -28,6 +28,7 @@ def finish():
 def cancel():
     with _lock:
         _progress["status"] = "cancelled"
+        _progress["note"] = ""
 
 def fail(msg: str):
     with _lock:

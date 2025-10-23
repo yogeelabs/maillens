@@ -102,3 +102,4 @@ yarn-error.log*
 *.tmp
 *.old
 *.orig
+agentdocs/

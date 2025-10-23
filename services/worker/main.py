@@ -41,9 +41,14 @@ def api_ingest_start(req: IngestRequest):
 
 @app.get("/progress")
 def api_progress():
-    p = get_progress()
-    p["running"] = is_running()
-    return p
+    snapshot = get_progress()
+    status = snapshot.get("status")
+    if status in {"done", "cancelled", "error"}:
+        running_flag = False
+    else:
+        running_flag = is_running()
+    snapshot["running"] = running_flag
+    return snapshot
 
 @app.post("/cancel")
 def api_cancel():
