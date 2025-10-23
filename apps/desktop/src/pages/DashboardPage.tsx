@@ -42,6 +42,17 @@ function buildFilters(
   meta: AppMeta,
   activeSource: AppSource | null,
 ): FilterNode[] {
+  const slugify = (value: string) =>
+    value
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "");
+  const createAddressNodes = (prefix: string, addresses: string[]): FilterNode[] =>
+    addresses.map(address => ({
+      id: `${prefix}-${slugify(address)}`,
+      label: address,
+    }));
+
   const totalSources = meta.sources.length;
   const latestIngestTs = meta.sources.reduce<number>(
     (latest, source) => Math.max(latest, Number(source.last_ingest_ts ?? 0)),
@@ -195,6 +206,146 @@ function buildFilters(
     ],
   };
 
+  const senderAttributesNode: FilterNode = {
+    id: "sender-attributes",
+    label: "Sender attributes",
+    description: "Group views by sender frequency and shared role-based mailboxes.",
+    children: [
+      {
+        id: "sender-attributes-frequency",
+        label: "Frequency",
+        description: "Segment senders by how often they appear in your ingest.",
+        children: [
+          {
+            id: "sender-attributes-frequency-first-time",
+            label: "First-time sender",
+            description: "Messages from senders appearing for the first time.",
+          },
+          {
+            id: "sender-attributes-frequency-recurring",
+            label: "Recurring sender",
+            description: "Senders who show up multiple times across ingests.",
+          },
+        ],
+      },
+      {
+        id: "sender-attributes-role-based",
+        label: "Role-based address",
+        description: "Identify shared inboxes and functional aliases.",
+        children: Object.entries({
+          "Support & Customer Service": [
+            "support@",
+            "help@",
+            "service@",
+            "care@",
+            "customer@",
+            "assist@",
+          ],
+          "Sales & Marketing": [
+            "sales@",
+            "marketing@",
+            "offers@",
+            "promo@",
+            "newsletter@",
+            "subscribe@",
+            "inquiry@",
+            "enquiry@",
+          ],
+          "Administration & HR": [
+            "admin@",
+            "administrator@",
+            "office@",
+            "team@",
+            "staff@",
+            "management@",
+            "hr@",
+            "careers@",
+            "jobs@",
+          ],
+          "Technical & IT": ["tech@", "it@", "sysadmin@", "webmaster@", "root@"],
+          "Finance & Accounts": [
+            "billing@",
+            "accounts@",
+            "accounting@",
+            "finance@",
+            "payments@",
+            "invoices@",
+            "receipts@",
+          ],
+          "Legal & Compliance": ["legal@", "privacy@", "compliance@", "security@", "abuse@", "dmca@"],
+          "Operations & Logistics": [
+            "orders@",
+            "order@",
+            "shipping@",
+            "warehouse@",
+            "logistics@",
+            "fulfillment@",
+          ],
+          "Media & PR": ["press@", "media@", "pr@", "news@", "editor@"],
+          "Education & Training": ["admissions@", "training@", "learning@", "education@"],
+          "Events & Community": ["events@", "community@", "conference@", "meetup@", "rsvp@", "contact@"],
+          "Generic Inquiries": ["info@", "hello@", "hi@", "feedback@", "query@"],
+        }).map(([category, addresses]) => ({
+          id: `sender-role-${slugify(category)}`,
+          label: category,
+          children: createAddressNodes(`sender-role-${slugify(category)}`, addresses),
+        })),
+      },
+      {
+        id: "sender-attributes-generic",
+        label: "Generic sender",
+        description: "Track broadly automated or transactional senders.",
+        children: Object.entries({
+          "No-reply Variants": [
+            "noreply@",
+            "no-reply@",
+            "do-not-reply@",
+            "donotreply@",
+            "dontreply@",
+            "no_reply@",
+            "no.reply@",
+            "noresponse@",
+            "do-not-respond@",
+          ],
+          "System & Daemon": [
+            "mailer-daemon@",
+            "postmaster@",
+            "bounce@",
+            "autoresponder@",
+            "robot@",
+            "bot@",
+            "automated@",
+            "system@",
+            "daemon@",
+          ],
+          "Notifications & Alerts": [
+            "notifications@",
+            "notify@",
+            "alerts@",
+            "updates@",
+            "status@",
+            "reminder@",
+            "message@",
+          ],
+          "Transactional Senders": [
+            "transactions@",
+            "orders@",
+            "receipts@",
+            "invoice@",
+            "booking@",
+            "registration@",
+          ],
+          "News & Campaigns": ["news@", "newsletter@", "digest@", "campaign@", "announce@"],
+          "Bulk & Marketing Engines": ["email@", "mail@", "mailer@", "marketing@", "promo@", "offers@"],
+        }).map(([category, addresses]) => ({
+          id: `sender-generic-${slugify(category)}`,
+          label: category,
+          children: createAddressNodes(`sender-generic-${slugify(category)}`, addresses),
+        })),
+      },
+    ],
+  };
+
   const teamNode: FilterNode = {
     id: "team-playbooks",
     label: "Team playbooks",
@@ -266,6 +417,7 @@ function buildFilters(
 
   return [
     summaryNode,
+    senderAttributesNode,
     {
       id: "system-views",
       label: "System views",
