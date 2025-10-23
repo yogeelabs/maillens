@@ -24,8 +24,10 @@ function App() {
     }
   }, [meta.first_run_complete, location.pathname, navigate]);
 
+  const isDashboardRoute = location.pathname.startsWith("/dashboard");
+
   return (
-    <div className="app-shell">
+    <div className={`app-shell${isDashboardRoute ? " app-shell--dashboard" : ""}`}>
       <AppRouter />
     </div>
   );

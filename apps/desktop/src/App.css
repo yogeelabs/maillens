@@ -38,9 +38,17 @@ body {
   color: inherit;
 }
 
+.app-shell--dashboard {
+  padding: 0;
+}
+
 @media (max-width: 640px) {
   .app-shell {
     padding: 32px 16px 48px;
+  }
+
+  .app-shell.app-shell--dashboard {
+    padding: 0;
   }
 }
 

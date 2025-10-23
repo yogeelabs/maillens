@@ -103,3 +103,4 @@ yarn-error.log*
 *.old
 *.orig
 agentdocs/
+CODE_FOR_REFERENCE/
