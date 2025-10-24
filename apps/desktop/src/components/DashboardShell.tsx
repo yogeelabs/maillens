@@ -21,7 +21,21 @@ export type FilterNode = {
   stats?: Array<{ label: string; value: string }>;
   actions?: string[];
   children?: FilterNode[];
+  insight?: FilterNodeInsight;
 };
+
+export type FilterNodeInsight =
+  | {
+      kind: "first-time";
+    }
+  | {
+      kind: "dormant";
+      inactiveDays?: number;
+    }
+  | {
+      kind: "address-group";
+      addresses: string[];
+    };
 
 type DashboardShellProps = {
   filters: FilterNode[];
