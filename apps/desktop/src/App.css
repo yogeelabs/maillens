@@ -595,6 +595,16 @@ button {
   border-bottom: none;
 }
 
+.dashboard-sender-table tbody tr:nth-child(even) th,
+.dashboard-sender-table tbody tr:nth-child(even) td {
+  background: #f8fafc;
+}
+
+.dashboard-email-list li:nth-child(even),
+.dashboard-source-list li:nth-child(even) {
+  background: rgba(248, 250, 252, 0.6);
+}
+
 .dashboard-source-list {
   list-style: none;
   margin: 0;
