@@ -1,12 +1,27 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import DashboardShell, { type FilterNode } from "../components/DashboardShell";
+import DashboardShell, { type FilterNode, type FilterNodeInsight } from "../components/DashboardShell";
 import StatCard from "../components/StatCard";
-import { EmailSummary, StatsSummary, getEmails, getStats } from "../lib/api";
+import {
+  EmailSummary,
+  SenderInsight,
+  StatsSummary,
+  getEmails,
+  getFirstTimeSenderInsights,
+  getDormantSenderInsights,
+  getSenderInsightsForAddresses,
+  getTopSenderInsights,
+  getRecipientCountInsights,
+  getRecipientDistributionInsights,
+  type RecipientInsight,
+  getStats,
+} from "../lib/api";
 import { type AppMeta, type AppSource, useAppState } from "../store/appState";
 
 const numberFormatter = new Intl.NumberFormat("en-US");
 const SUMMARY_NODE_ID = "dashboard-summary";
+const FIRST_TIME_SENDER_NODE_ID = "sender-attributes-frequency-first-time";
+const DEFAULT_DORMANT_INACTIVE_DAYS = 365;
 
 function formatNumber(value: number | null | undefined): string {
   if (typeof value !== "number" || !Number.isFinite(value)) {
@@ -42,6 +57,21 @@ function buildFilters(
   meta: AppMeta,
   activeSource: AppSource | null,
 ): FilterNode[] {
+  const slugify = (value: string) =>
+    value
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "");
+  const createAddressNodes = (prefix: string, addresses: string[]): FilterNode[] =>
+    addresses.map(address => ({
+      id: `${prefix}-${slugify(address)}`,
+      label: address,
+      insight: {
+        kind: "address-group",
+        addresses: [address],
+      },
+    }));
+
   const totalSources = meta.sources.length;
   const latestIngestTs = meta.sources.reduce<number>(
     (latest, source) => Math.max(latest, Number(source.last_ingest_ts ?? 0)),
@@ -195,6 +225,387 @@ function buildFilters(
     ],
   };
 
+  const roleBasedGroups: Record<string, string[]> = {
+    "Support & Customer Service": [
+      "support@",
+      "help@",
+      "service@",
+      "assist@",
+      "helpdesk@",
+      "care@",
+      "customercare@",
+      "customer.service@",
+      "customerservice@",
+      "clientservice@",
+      "csr@",
+      "itsupport@",
+      "techsupport@",
+    ],
+    "Sales & Marketing": [
+      "sales@",
+      "marketing@",
+      "offers@",
+      "promo@",
+      "promotion@",
+      "deals@",
+      "discount@",
+      "advertise@",
+      "newsletter@",
+      "subscribe@",
+      "crm@",
+      "announcement@",
+      "announcements@",
+      "notifications@",
+      "updates@",
+      "campaign@",
+    ],
+    "Administration & HR": [
+      "admin@",
+      "administrator@",
+      "office@",
+      "team@",
+      "staff@",
+      "management@",
+      "hr@",
+      "recruit@",
+      "recruitment@",
+      "careers@",
+      "jobs@",
+      "hiring@",
+      "talent@",
+      "joinus@",
+    ],
+    "Technical & IT": [
+      "tech@",
+      "it@",
+      "sysadmin@",
+      "webmaster@",
+      "developer@",
+      "developers@",
+      "devops@",
+      "root@",
+      "cloud@",
+      "api@",
+    ],
+    "Finance & Accounts": [
+      "billing@",
+      "accounts@",
+      "accounting@",
+      "account@",
+      "finance@",
+      "payments@",
+      "invoices@",
+      "invoice@",
+      "receipts@",
+      "statement@",
+      "transactions@",
+      "payroll@",
+    ],
+    "Legal & Compliance": [
+      "legal@",
+      "privacy@",
+      "compliance@",
+      "security@",
+      "dpo@",
+      "abuse@",
+      "dmca@",
+      "fraud@",
+      "violation@",
+      "alert@",
+    ],
+    "Operations & Logistics": [
+      "orders@",
+      "order@",
+      "shipping@",
+      "warehouse@",
+      "logistics@",
+      "fulfillment@",
+      "supply@",
+      "delivery@",
+      "dispatch@",
+    ],
+    "Media & PR": [
+      "press@",
+      "media@",
+      "pr@",
+      "news@",
+      "editor@",
+      "publicrelations@",
+      "outreach@",
+    ],
+    "Education & Training": [
+      "admissions@",
+      "training@",
+      "learning@",
+      "education@",
+      "academy@",
+      "course@",
+      "institute@",
+    ],
+    "Events & Community": [
+      "events@",
+      "event@",
+      "conference@",
+      "seminar@",
+      "webinar@",
+      "community@",
+      "meetup@",
+      "network@",
+      "rsvp@",
+      "society@",
+      "association@",
+      "contact@",
+    ],
+    "Generic Inquiries": [
+      "info@",
+      "hello@",
+      "hi@",
+      "feedback@",
+      "query@",
+      "question@",
+      "ask@",
+      "contactus@",
+      "enquiry@",
+      "inquiry@",
+    ],
+  };
+  const roleBasedGroupsEntries = Object.entries(roleBasedGroups);
+  const roleBasedAddresses = roleBasedGroupsEntries.reduce<string[]>(
+    (all, [, addresses]) => all.concat(addresses),
+    [],
+  );
+
+  const genericSenderGroups: Record<string, string[]> = {
+    "No-reply Variants": [
+      "noreply@",
+      "no-reply@",
+      "do-not-reply@",
+      "donotreply@",
+      "dontreply@",
+      "no_reply@",
+      "no.reply@",
+      "noresponse@",
+      "do-not-respond@",
+      "do_not_reply@",
+      "noreplymail@",
+      "noreplyservice@",
+    ],
+    "System & Daemon": [
+      "mailer-daemon@",
+      "postmaster@",
+      "bounce@",
+      "autoresponder@",
+      "autoresponse@",
+      "robot@",
+      "bot@",
+      "automated@",
+      "system@",
+      "daemon@",
+      "auto@",
+      "automailer@",
+    ],
+    "Notifications & Alerts": [
+      "notifications@",
+      "notification@",
+      "notify@",
+      "alerts@",
+      "alert@",
+      "updates@",
+      "status@",
+      "reminder@",
+      "message@",
+      "warning@",
+    ],
+    "Transactional Senders": [
+      "transactions@",
+      "transaction@",
+      "orders@",
+      "order@",
+      "receipts@",
+      "receipt@",
+      "invoice@",
+      "booking@",
+      "bookings@",
+      "registration@",
+      "confirm@",
+      "confirmation@",
+      "passwordreset@",
+      "verification@",
+      "accountupdate@",
+    ],
+    "News & Campaigns": [
+      "news@",
+      "newsletter@",
+      "digest@",
+      "campaign@",
+      "announce@",
+      "announcement@",
+      "announcements@",
+      "press@",
+    ],
+    "Bulk & Marketing Engines": [
+      "email@",
+      "mail@",
+      "mailer@",
+      "marketing@",
+      "promo@",
+      "offers@",
+      "blast@",
+      "ads@",
+      "ad@",
+      "crm@",
+      "list@",
+    ],
+  };
+  const genericGroupsEntries = Object.entries(genericSenderGroups);
+  const genericAddresses = genericGroupsEntries.reduce<string[]>(
+    (all, [, addresses]) => all.concat(addresses),
+    [],
+  );
+
+  const senderAttributesNode: FilterNode = {
+    id: "sender-attributes",
+    label: "Sender attributes",
+    description: "Group views by sender frequency and shared role-based mailboxes.",
+    children: [
+      {
+        id: "sender-attributes-top",
+        label: "Top senders",
+        description: "Senders with the highest message volume in this workspace.",
+        insight: {
+          kind: "top",
+        },
+      },
+      {
+        id: "sender-attributes-frequency",
+        label: "Frequency",
+        description: "Segment senders by how often they appear in your ingest.",
+        children: [
+          {
+            id: FIRST_TIME_SENDER_NODE_ID,
+            label: "First-time senders",
+            description: "Senders whose first message appeared in this workspace.",
+            insight: {
+              kind: "first-time",
+            },
+          },
+          {
+            id: "sender-attributes-frequency-dormant",
+            label: "Dormant senders",
+            description: "Senders who have gone quiet for a year or more.",
+            insight: {
+              kind: "dormant",
+              inactiveDays: DEFAULT_DORMANT_INACTIVE_DAYS,
+            },
+          },
+        ],
+      },
+      {
+        id: "sender-attributes-role-based",
+        label: "Role-based address",
+        description: "Identify shared inboxes and functional aliases.",
+        insight: {
+          kind: "address-group",
+          addresses: roleBasedAddresses,
+        },
+        children: roleBasedGroupsEntries.map(([category, addresses]) => ({
+          id: `sender-role-${slugify(category)}`,
+          label: category,
+          insight: {
+            kind: "address-group",
+            addresses,
+          },
+          children: createAddressNodes(`sender-role-${slugify(category)}`, addresses),
+        })),
+      },
+      {
+        id: "sender-attributes-generic",
+        label: "Generic sender",
+        description: "Track broadly automated or transactional senders.",
+        insight: {
+          kind: "address-group",
+          addresses: genericAddresses,
+        },
+        children: genericGroupsEntries.map(([category, addresses]) => ({
+          id: `sender-generic-${slugify(category)}`,
+          label: category,
+          insight: {
+            kind: "address-group",
+            addresses,
+          },
+          children: createAddressNodes(`sender-generic-${slugify(category)}`, addresses),
+        })),
+      },
+    ],
+  };
+
+  const recipientAttributesNode: FilterNode = {
+    id: "recipient-attributes",
+    label: "Recipient attributes",
+    description: "Understand how messages target individual recipients and distribution lists.",
+    children: [
+      {
+        id: "recipient-count-type",
+        label: "Count & type",
+        description: "Break down messages by total recipient count.",
+        children: [
+          {
+            id: "recipient-count-single",
+            label: "Single recipient",
+            description: "Emails addressed to exactly one recipient.",
+            insight: {
+              kind: "recipient-count",
+              mode: "single",
+            },
+          },
+          {
+            id: "recipient-count-multiple",
+            label: "Multiple recipients",
+            description: "Emails sent to two or more recipients.",
+            insight: {
+              kind: "recipient-count",
+              mode: "multiple",
+            },
+          },
+        ],
+      },
+      {
+        id: "recipient-distribution-size",
+        label: "Distribution list size",
+        description: "Group emails based on how many recipients they include.",
+        children: [
+          {
+            id: "recipient-distribution-small",
+            label: "Small list (2–5 recipients)",
+            description: "Messages with a small distribution list.",
+            insight: {
+              kind: "recipient-distribution",
+              bucket: "small",
+            },
+          },
+          {
+            id: "recipient-distribution-medium",
+            label: "Medium list (6–20 recipients)",
+            description: "Messages sent to mid-sized distributions.",
+            insight: {
+              kind: "recipient-distribution",
+              bucket: "medium",
+            },
+          },
+          {
+            id: "recipient-distribution-large",
+            label: "Large list (21+ recipients)",
+            description: "Messages broadcast to large recipient lists.",
+            insight: {
+              kind: "recipient-distribution",
+              bucket: "large",
+            },
+          },
+        ],
+      },
+    ],
+  };
+
   const teamNode: FilterNode = {
     id: "team-playbooks",
     label: "Team playbooks",
@@ -266,6 +677,8 @@ function buildFilters(
 
   return [
     summaryNode,
+    senderAttributesNode,
+    recipientAttributesNode,
     {
       id: "system-views",
       label: "System views",
@@ -275,6 +688,580 @@ function buildFilters(
     teamNode,
     personalNode,
   ];
+}
+
+type SenderInsightViewProps = {
+  insight: Extract<
+    FilterNodeInsight,
+    { kind: "first-time" | "dormant" | "address-group" | "top" }
+  >;
+  limit?: number;
+};
+
+const EMPTY_INSIGHT: SenderInsight = {
+  stats: {
+    unique_senders: 0,
+    total_emails: 0,
+    latest_ts: null,
+  },
+  senders: [],
+  emails: [],
+};
+
+function SenderInsightView({ insight, limit = 50 }: SenderInsightViewProps) {
+  const [data, setData] = useState<SenderInsight>(EMPTY_INSIGHT);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<"stats" | "emails">("stats");
+  const [reloadKey, setReloadKey] = useState(0);
+
+  const trimmedAddresses = useMemo(() => {
+    if (insight.kind !== "address-group") {
+      return [];
+    }
+    return insight.addresses
+      .map(address => address.trim())
+      .filter(address => address.length > 0);
+  }, [insight]);
+
+  const inactiveDays =
+    insight.kind === "dormant"
+      ? insight.inactiveDays ?? DEFAULT_DORMANT_INACTIVE_DAYS
+      : DEFAULT_DORMANT_INACTIVE_DAYS;
+
+  const addressesKey = useMemo(
+    () =>
+      trimmedAddresses
+        .map(address => address.toLowerCase())
+        .sort()
+        .join("|"),
+    [trimmedAddresses],
+  );
+
+  const insightKey = useMemo(() => {
+    switch (insight.kind) {
+      case "top":
+        return `top-${limit}`;
+      case "first-time":
+        return "first-time";
+      case "dormant":
+        return `dormant-${inactiveDays}`;
+      case "address-group":
+        return `address-${addressesKey}`;
+      default:
+        return "unknown";
+    }
+  }, [insight.kind, addressesKey, inactiveDays, limit]);
+
+  useEffect(() => {
+    setActiveTab("stats");
+    setReloadKey(0);
+  }, [insightKey]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      const cleanedAddresses =
+        insight.kind === "address-group" ? trimmedAddresses : [];
+
+      setLoading(true);
+      setError(null);
+      try {
+        let insightData: SenderInsight;
+        if (insight.kind === "top") {
+          insightData = await getTopSenderInsights(limit);
+        } else if (insight.kind === "first-time") {
+          insightData = await getFirstTimeSenderInsights(limit);
+        } else if (insight.kind === "dormant") {
+          insightData = await getDormantSenderInsights(limit, inactiveDays);
+        } else if (insight.kind === "address-group") {
+          if (cleanedAddresses.length === 0) {
+            insightData = EMPTY_INSIGHT;
+          } else {
+            insightData = await getSenderInsightsForAddresses(cleanedAddresses, limit);
+          }
+        } else {
+          insightData = EMPTY_INSIGHT;
+        }
+        if (!cancelled) {
+          setData(insightData);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          console.warn("Sender insight load failed", err);
+          setError("Unable to load sender insights. Ensure the MailLens worker is running.");
+          setData(EMPTY_INSIGHT);
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    }
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [insight.kind, insightKey, limit, trimmedAddresses, inactiveDays, reloadKey]);
+
+  const matchingPrefixes =
+    insight.kind === "address-group" && trimmedAddresses.length
+      ? trimmedAddresses.join(", ")
+      : "";
+
+  const hasEmails = data.emails.length > 0;
+  const hasSenders = data.senders.length > 0;
+  const supportsEmails = insight.kind !== "top";
+  const statsConfig = (() => {
+    switch (insight.kind) {
+      case "top":
+        return {
+          sendersLabel: "Top senders",
+          emailsLabel: "Total emails",
+        };
+      case "first-time":
+        return {
+          sendersLabel: "First-time senders",
+          emailsLabel: "Emails received",
+        };
+      case "dormant":
+        return {
+          sendersLabel: "Dormant senders",
+          emailsLabel: "Historical emails",
+        };
+      default:
+        return {
+          sendersLabel: "Matching senders",
+          emailsLabel: "Emails received",
+        };
+    }
+  })();
+
+  const panelTitles = (() => {
+    switch (insight.kind) {
+      case "top":
+        return {
+          stats: "Top senders",
+          emails: "",
+        };
+      case "first-time":
+        return {
+          stats: "First-time senders",
+          emails: "Emails from first-time senders",
+        };
+      case "dormant":
+        return {
+          stats: "Dormant senders",
+          emails: "Historical emails from dormant senders",
+        };
+      case "address-group":
+      default:
+        return {
+          stats: "Sender breakdown",
+          emails: "Recent matching emails",
+        };
+    }
+  })();
+
+  const helperNote = (() => {
+    switch (insight.kind) {
+      case "top":
+        return "Sorted by message volume. Showing the top 50 senders.";
+      case "first-time":
+        return "Senders whose first message appeared in this workspace.";
+      case "dormant":
+        return `Senders with no activity in the last ${inactiveDays} days.`;
+      case "address-group":
+        return matchingPrefixes ? `Matching prefixes: ${matchingPrefixes}` : "";
+      default:
+        return "";
+    }
+  })();
+
+  const emptySendersMessage =
+    insight.kind === "first-time"
+      ? "No first-time senders found yet."
+      : insight.kind === "dormant"
+        ? "No dormant senders detected."
+        : insight.kind === "top"
+          ? "No senders found yet."
+          : "No matching senders found.";
+
+  const emptyEmailsMessage =
+    insight.kind === "first-time"
+      ? "No emails from first-time senders found."
+      : insight.kind === "dormant"
+        ? "No historical emails for dormant senders."
+        : insight.kind === "top"
+          ? "Email list unavailable for top senders view."
+          : "No emails matched this sender group.";
+
+  const tabButtonClass = (tab: "stats" | "emails") =>
+    `btn ${activeTab === tab ? "btn-secondary" : "btn-ghost"}`;
+
+  if (loading) {
+    return (
+      <>
+        <div
+          className="dashboard-tablist"
+          style={{ display: "flex", gap: "0.5rem", marginBottom: "1rem" }}
+        >
+          <button type="button" className="btn btn-secondary" disabled>
+            Stats
+          </button>
+          {supportsEmails ? (
+            <button type="button" className="btn btn-ghost" disabled>
+              Emails
+            </button>
+          ) : null}
+        </div>
+        <section className="dashboard-panels">
+          <div className="dashboard-panel">
+            <div className="dashboard-panel-header">
+              <h2>Loading sender insight…</h2>
+            </div>
+            <p className="wizard-muted">
+              Fetching data from the MailLens worker. This may take a moment for large mailboxes.
+            </p>
+          </div>
+        </section>
+      </>
+    );
+  }
+
+  if (error) {
+    return (
+      <>
+        <div
+          className="dashboard-tablist"
+          style={{ display: "flex", gap: "0.5rem", marginBottom: "1rem" }}
+        >
+          <button type="button" className="btn btn-secondary" disabled>
+            Stats
+          </button>
+          {supportsEmails ? (
+            <button type="button" className="btn btn-ghost" disabled>
+              Emails
+            </button>
+          ) : null}
+        </div>
+        <section className="dashboard-panels">
+          <div className="dashboard-panel">
+            <div className="dashboard-panel-header">
+              <h2>Insights unavailable</h2>
+            </div>
+            <p className="dashboard-error">{error}</p>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={() => setReloadKey(prev => prev + 1)}
+            >
+              Retry
+            </button>
+          </div>
+        </section>
+      </>
+    );
+  }
+
+  return (
+    <>
+      <div
+        className="dashboard-tablist"
+        role="tablist"
+        aria-label="Sender insight views"
+        style={{ display: "flex", gap: "0.5rem", marginBottom: "1rem" }}
+      >
+        <button
+          type="button"
+          className={tabButtonClass("stats")}
+          role="tab"
+          aria-selected={activeTab === "stats"}
+          onClick={() => setActiveTab("stats")}
+        >
+          Stats
+        </button>
+        {supportsEmails ? (
+          <button
+            type="button"
+            className={tabButtonClass("emails")}
+            role="tab"
+            aria-selected={activeTab === "emails"}
+            onClick={() => setActiveTab("emails")}
+          >
+            Emails
+          </button>
+        ) : null}
+      </div>
+      {activeTab === "stats" || !supportsEmails ? (
+        <>
+          <section className="stats-grid">
+            {data.stats.total_emails > 0 || data.stats.unique_senders > 0 ? (
+              <>
+                <StatCard label={statsConfig.sendersLabel} value={formatNumber(data.stats.unique_senders)} />
+                <StatCard label={statsConfig.emailsLabel} value={formatNumber(data.stats.total_emails)} />
+                <StatCard label="Latest activity" value={formatTimestamp(data.stats.latest_ts)} />
+              </>
+            ) : (
+              <div className="dashboard-placeholder">No matching sender data yet.</div>
+            )}
+          </section>
+          <section className="dashboard-panels">
+            <div className="dashboard-panel">
+              <div className="dashboard-panel-header">
+                <h2>{panelTitles.stats}</h2>
+              </div>
+              {helperNote ? (
+                <p className="wizard-muted">{helperNote}</p>
+              ) : null}
+              {hasSenders ? (
+                <table className="dashboard-insight-table">
+                  <thead>
+                    <tr>
+                      <th scope="col">Sender</th>
+                      <th scope="col">Total emails</th>
+                      <th scope="col">Latest</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.senders.map((sender, index) => (
+                      <tr
+                        key={
+                          sender.from_email
+                            ? `sender-${sender.from_email}`
+                            : `sender-${index}`
+                        }
+                      >
+                        <th scope="row">{sender.from_email || "Unknown sender"}</th>
+                        <td>{formatNumber(sender.total_emails)}</td>
+                        <td>{formatTimestamp(sender.latest_ts)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              ) : (
+                <p className="wizard-muted">{emptySendersMessage}</p>
+              )}
+            </div>
+          </section>
+        </>
+      ) : (
+        <section className="dashboard-panels">
+          <div className="dashboard-panel">
+            <div className="dashboard-panel-header">
+              <h2>{panelTitles.emails}</h2>
+            </div>
+            {helperNote ? (
+              <p className="wizard-muted">{helperNote}</p>
+            ) : null}
+            {hasEmails ? (
+              <ul className="dashboard-email-list">
+                {data.emails.map(email => (
+                  <li key={email.id}>
+                    <p className="email-subject">{email.subject || "(No subject)"}</p>
+                    <p className="email-meta">
+                      <span>{email.from_email || "Unknown sender"}</span>
+                      {email.date_ts ? <span>{formatTimestamp(email.date_ts)}</span> : null}
+                    </p>
+                    {email.snippet ? <p className="email-snippet">{email.snippet}</p> : null}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="wizard-muted">{emptyEmailsMessage}</p>
+            )}
+          </div>
+        </section>
+      )}
+    </>
+  );
+}
+
+type RecipientInsightViewProps = {
+  insight: Extract<FilterNodeInsight, { kind: "recipient-count" | "recipient-distribution" }>;
+  limit?: number;
+};
+
+const EMPTY_RECIPIENT_INSIGHT: RecipientInsight = {
+  stats: {
+    unique_recipients: 0,
+    total_emails: 0,
+    latest_ts: null,
+  },
+  recipients: [],
+  emails: [],
+};
+
+function RecipientInsightView({ insight, limit = 50 }: RecipientInsightViewProps) {
+  const effectiveLimit = insight.limit ?? limit;
+  const [data, setData] = useState<RecipientInsight>(EMPTY_RECIPIENT_INSIGHT);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
+
+  const modeKey =
+    insight.kind === "recipient-count" ? insight.mode : insight.bucket;
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      setLoading(true);
+      setError(null);
+      try {
+        let recipientInsight: RecipientInsight;
+        if (insight.kind === "recipient-count") {
+          recipientInsight = await getRecipientCountInsights(insight.mode, effectiveLimit);
+        } else {
+          recipientInsight = await getRecipientDistributionInsights(insight.bucket, effectiveLimit);
+        }
+        if (!cancelled) {
+          setData(recipientInsight);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          console.warn("Recipient insight load failed", err);
+          setError("Unable to load recipient insights. Ensure the MailLens worker is running.");
+          setData(EMPTY_RECIPIENT_INSIGHT);
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    }
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [insight.kind, modeKey, effectiveLimit, reloadKey]);
+
+  const helperNote = useMemo(() => {
+    if (insight.kind === "recipient-count") {
+      return insight.mode === "single"
+        ? "Emails addressed to exactly one recipient."
+        : "Emails sent to two or more recipients.";
+    }
+    switch (insight.bucket) {
+      case "small":
+        return "Emails delivered to small recipient lists (2–5 recipients).";
+      case "medium":
+        return "Emails delivered to medium-sized distributions (6–20 recipients).";
+      case "large":
+        return "Emails broadcast to large recipient lists (21 or more recipients).";
+      default:
+        return "";
+    }
+  }, [insight]);
+
+  const panelTitle = useMemo(() => {
+    if (insight.kind === "recipient-count") {
+      return insight.mode === "single"
+        ? "Single recipient addresses"
+        : "Multi-recipient addresses";
+    }
+    switch (insight.bucket) {
+      case "small":
+        return "Small distribution recipients";
+      case "medium":
+        return "Medium distribution recipients";
+      case "large":
+        return "Large distribution recipients";
+      default:
+        return "Recipient breakdown";
+    }
+  }, [insight]);
+
+  const emptyRecipientsMessage =
+    data.stats.total_emails === 0
+      ? "No recipient activity found for this view."
+      : "No recipient details available.";
+
+  if (loading) {
+    return (
+      <section className="dashboard-panels">
+        <div className="dashboard-panel">
+          <div className="dashboard-panel-header">
+            <h2>Loading recipient insight…</h2>
+          </div>
+          <p className="wizard-muted">
+            Analysing recipient patterns. This may take a moment for larger mailboxes.
+          </p>
+        </div>
+      </section>
+    );
+  }
+
+  if (error) {
+    return (
+      <section className="dashboard-panels">
+        <div className="dashboard-panel">
+          <div className="dashboard-panel-header">
+            <h2>Insights unavailable</h2>
+          </div>
+          <p className="dashboard-error">{error}</p>
+          <button
+            type="button"
+            className="btn btn-secondary"
+            onClick={() => setReloadKey(prev => prev + 1)}
+          >
+            Retry
+          </button>
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <>
+      <section className="stats-grid">
+        {data.stats.total_emails > 0 || data.stats.unique_recipients > 0 ? (
+          <>
+            <StatCard label="Unique recipients" value={formatNumber(data.stats.unique_recipients)} />
+            <StatCard label="Total emails" value={formatNumber(data.stats.total_emails)} />
+            <StatCard label="Latest activity" value={formatTimestamp(data.stats.latest_ts)} />
+          </>
+        ) : (
+          <div className="dashboard-placeholder">No matching recipient data yet.</div>
+        )}
+      </section>
+      <section className="dashboard-panels">
+        <div className="dashboard-panel">
+          <div className="dashboard-panel-header">
+            <h2>{panelTitle}</h2>
+          </div>
+          {helperNote ? <p className="wizard-muted">{helperNote}</p> : null}
+          {data.recipients.length ? (
+            <table className="dashboard-insight-table">
+              <thead>
+                <tr>
+                  <th scope="col">Recipient</th>
+                  <th scope="col">Total emails</th>
+                  <th scope="col">Latest</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.recipients.map((recipient, index) => (
+                  <tr
+                    key={
+                      recipient.address
+                        ? `recipient-${recipient.address}`
+                        : `recipient-${index}`
+                    }
+                  >
+                    <th scope="row">{recipient.address || "Unknown recipient"}</th>
+                    <td>{formatNumber(recipient.total_emails)}</td>
+                    <td>{formatTimestamp(recipient.latest_ts)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : (
+            <p className="wizard-muted">{emptyRecipientsMessage}</p>
+          )}
+        </div>
+      </section>
+    </>
+  );
 }
 
 export default function DashboardPage() {
@@ -328,117 +1315,93 @@ export default function DashboardPage() {
 
   return (
     <DashboardShell filters={filters}>
-      {(selected) => (
-        <div className="dashboard">
-          {(() => {
-            const summarySelected = selected?.id === SUMMARY_NODE_ID;
-            const headerTitle = summarySelected ? "Inbox overview" : selected?.label ?? "Dashboard";
-            return (
-              <header className="dashboard-header">
-                <div>
-                  <p className="dashboard-kicker">MailLens</p>
-                  <h1>{headerTitle}</h1>
-                  <p className="dashboard-subtitle">
-                    {activeSource ? (
-                      <>
-                        Active source: <code>{activeSource.path}</code>
-                      </>
-                    ) : (
-                      "No sources ingested yet"
-                    )}
-                  </p>
-                  {activeSource ? (
-                    <p className="dashboard-meta">
-                      Last ingest: {formatTimestamp(activeSource.last_ingest_ts)} · {formatNumber(activeSource.total_emails)} messages indexed
-                    </p>
-                  ) : null}
-                  {!summarySelected && selected ? (
-                    <p className="dashboard-meta">Selected view: {selected.label}</p>
-                  ) : null}
-                </div>
-                <div className="dashboard-actions">
-                  <button className="btn btn-primary" type="button" onClick={handleReingest}>
-                    Re-ingest data
-                  </button>
-                  <button className="btn btn-secondary" type="button" disabled>
-                    Add new source
-                  </button>
-                </div>
-              </header>
-            );
-          })()}
-
-          {error ? <p className="dashboard-error">{error}</p> : null}
-
-          <section className="stats-grid">
-            {stats ? (
-              <>
-                <StatCard label="Total emails" value={formatNumber(stats.total)} />
-                <StatCard label="Unread" value={formatNumber(stats.unread)} />
-                <StatCard label="Flagged" value={formatNumber(stats.flagged)} />
-                <StatCard label="Junk" value={formatNumber(stats.junk)} />
-                <StatCard label="Unique senders" value={formatNumber(stats.unique_senders)} />
-              </>
+      {(selected) => {
+        const selectedInsight = selected?.insight;
+        return (
+          <div className="dashboard">
+            {selectedInsight ? (
+              selectedInsight.kind === "recipient-count" ||
+              selectedInsight.kind === "recipient-distribution" ? (
+                <RecipientInsightView insight={selectedInsight} />
+              ) : (
+                <SenderInsightView insight={selectedInsight} />
+              )
             ) : (
-              <div className="dashboard-placeholder">{loading ? "Loading summary…" : "No data yet."}</div>
-            )}
-          </section>
+              <>
+                {error ? <p className="dashboard-error">{error}</p> : null}
 
-          <section className="dashboard-panels">
-            <div className="dashboard-panel">
-              <div className="dashboard-panel-header">
-                <h2>Recent emails</h2>
-                <button className="btn btn-ghost" type="button" onClick={handleReingest}>
-                  Re-run ingest
-                </button>
-              </div>
-              {loading ? (
-                <p className="wizard-muted">Fetching latest emails…</p>
-              ) : emails.length === 0 ? (
-                <p className="wizard-muted">No emails found. Try ingesting a mailbox.</p>
-              ) : (
-                <ul className="dashboard-email-list">
-                  {emails.map(email => (
-                    <li key={email.id}>
-                      <p className="email-subject">{email.subject || "(No subject)"}</p>
-                      <p className="email-meta">
-                        <span>{email.from_email || "Unknown sender"}</span>
-                        {email.date_ts ? <span>{formatTimestamp(email.date_ts)}</span> : null}
+                <section className="stats-grid">
+                  {stats ? (
+                    <>
+                      <StatCard label="Total emails" value={formatNumber(stats.total)} />
+                      <StatCard label="Unread" value={formatNumber(stats.unread)} />
+                      <StatCard label="Flagged" value={formatNumber(stats.flagged)} />
+                      <StatCard label="Junk" value={formatNumber(stats.junk)} />
+                      <StatCard label="Unique senders" value={formatNumber(stats.unique_senders)} />
+                    </>
+                  ) : (
+                    <div className="dashboard-placeholder">{loading ? "Loading summary…" : "No data yet."}</div>
+                  )}
+                </section>
+
+                <section className="dashboard-panels">
+                  <div className="dashboard-panel">
+                    <div className="dashboard-panel-header">
+                      <h2>Recent emails</h2>
+                      <button className="btn btn-ghost" type="button" onClick={handleReingest}>
+                        Re-run ingest
+                      </button>
+                    </div>
+                    {loading ? (
+                      <p className="wizard-muted">Fetching latest emails…</p>
+                    ) : emails.length === 0 ? (
+                      <p className="wizard-muted">No emails found. Try ingesting a mailbox.</p>
+                    ) : (
+                      <ul className="dashboard-email-list">
+                        {emails.map(email => (
+                          <li key={email.id}>
+                            <p className="email-subject">{email.subject || "(No subject)"}</p>
+                            <p className="email-meta">
+                              <span>{email.from_email || "Unknown sender"}</span>
+                              {email.date_ts ? <span>{formatTimestamp(email.date_ts)}</span> : null}
+                            </p>
+                            {email.snippet ? <p className="email-snippet">{email.snippet}</p> : null}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                  <div className="dashboard-panel">
+                    <div className="dashboard-panel-header">
+                      <h2>Sources</h2>
+                    </div>
+                    {meta.sources.length === 0 ? (
+                      <p className="wizard-muted">
+                        No sources connected yet. Run the wizard to add your first mailbox.
                       </p>
-                      {email.snippet ? <p className="email-snippet">{email.snippet}</p> : null}
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-            <div className="dashboard-panel">
-              <div className="dashboard-panel-header">
-                <h2>Sources</h2>
-              </div>
-              {meta.sources.length === 0 ? (
-                <p className="wizard-muted">
-                  No sources connected yet. Run the wizard to add your first mailbox.
-                </p>
-              ) : (
-                <ul className="dashboard-source-list">
-                  {meta.sources.map(source => (
-                    <li key={source.id} className={source.id === meta.active_source ? "is-active" : ""}>
-                      <div>
-                        <p className="source-label">{source.type.toUpperCase()}</p>
-                        <p className="source-path">{source.path}</p>
-                      </div>
-                      <div className="source-meta">
-                        <span>{formatNumber(source.total_emails)} messages</span>
-                        <span>Last ingest {formatTimestamp(source.last_ingest_ts)}</span>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          </section>
-        </div>
-      )}
+                    ) : (
+                      <ul className="dashboard-source-list">
+                        {meta.sources.map(source => (
+                          <li key={source.id} className={source.id === meta.active_source ? "is-active" : ""}>
+                            <div>
+                              <p className="source-label">{source.type.toUpperCase()}</p>
+                              <p className="source-path">{source.path}</p>
+                            </div>
+                            <div className="source-meta">
+                              <span>{formatNumber(source.total_emails)} messages</span>
+                              <span>Last ingest {formatTimestamp(source.last_ingest_ts)}</span>
+                            </div>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                </section>
+              </>
+            )}
+          </div>
+        );
+      }}
     </DashboardShell>
   );
 }

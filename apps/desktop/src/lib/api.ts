@@ -38,6 +38,42 @@ interface RequestOptions extends RequestInit {
   method?: HttpMethod;
 }
 
+export interface SenderInsightStats {
+  unique_senders: number;
+  total_emails: number;
+  latest_ts?: number | null;
+}
+
+export interface SenderInsightSender {
+  from_email: string | null;
+  total_emails: number;
+  latest_ts: number | null;
+}
+
+export interface SenderInsight {
+  stats: SenderInsightStats;
+  senders: SenderInsightSender[];
+  emails: EmailSummary[];
+}
+
+export interface RecipientInsightStats {
+  unique_recipients: number;
+  total_emails: number;
+  latest_ts?: number | null;
+}
+
+export interface RecipientInsightRecipient {
+  address: string | null;
+  total_emails: number;
+  latest_ts: number | null;
+}
+
+export interface RecipientInsight {
+  stats: RecipientInsightStats;
+  recipients: RecipientInsightRecipient[];
+  emails: EmailSummary[];
+}
+
 async function request<T>(endpoint: string, init: RequestOptions = {}): Promise<T> {
   const { headers, ...rest } = init;
   const response = await fetch(`${API_BASE}${endpoint}`, {
@@ -92,4 +128,64 @@ export async function getStats(): Promise<StatsSummary> {
 export async function getEmails(limit = 10): Promise<EmailSummary[]> {
   const query = new URLSearchParams({ limit: String(limit) });
   return request<EmailSummary[]>(`/emails?${query.toString()}`, { method: "GET" });
+}
+
+export async function getFirstTimeSenderInsights(limit = 50): Promise<SenderInsight> {
+  const query = new URLSearchParams({ limit: String(limit) });
+  return request<SenderInsight>(`/insights/senders/first-time?${query.toString()}`, { method: "GET" });
+}
+
+export async function getDormantSenderInsights(
+  limit = 50,
+  inactiveDays = 365,
+): Promise<SenderInsight> {
+  const query = new URLSearchParams({
+    limit: String(limit),
+    inactive_days: String(inactiveDays),
+  });
+  return request<SenderInsight>(`/insights/senders/dormant?${query.toString()}`, {
+    method: "GET",
+  });
+}
+
+export async function getSenderInsightsForAddresses(
+  addresses: string[],
+  limit = 50,
+): Promise<SenderInsight> {
+  const query = new URLSearchParams({ limit: String(limit) });
+  for (const address of addresses) {
+    query.append("address", address);
+  }
+  return request<SenderInsight>(`/insights/senders/by-address?${query.toString()}`, { method: "GET" });
+}
+
+export async function getTopSenderInsights(limit = 50): Promise<SenderInsight> {
+  const query = new URLSearchParams({ limit: String(limit) });
+  return request<SenderInsight>(`/insights/senders/top?${query.toString()}`, { method: "GET" });
+}
+
+export async function getRecipientCountInsights(
+  mode: "single" | "multiple",
+  limit = 50,
+): Promise<RecipientInsight> {
+  const query = new URLSearchParams({
+    mode,
+    limit: String(limit),
+  });
+  return request<RecipientInsight>(`/insights/recipients/count-type?${query.toString()}`, {
+    method: "GET",
+  });
+}
+
+export async function getRecipientDistributionInsights(
+  bucket: "small" | "medium" | "large",
+  limit = 50,
+): Promise<RecipientInsight> {
+  const query = new URLSearchParams({
+    bucket,
+    limit: String(limit),
+  });
+  return request<RecipientInsight>(`/insights/recipients/distribution?${query.toString()}`, {
+    method: "GET",
+  });
 }

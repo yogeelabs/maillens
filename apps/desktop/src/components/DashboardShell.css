@@ -1,12 +1,16 @@
 .dashboard-shell {
   display: flex;
-  min-height: 100vh;
+  height: 100vh;
+  min-height: 0;
+  overflow: hidden;
   background: linear-gradient(135deg, #f7f8fc 0%, #f2f5ff 45%, #f8fafc 100%);
 }
 
 .dashboard-sidebar {
   display: flex;
   flex-direction: column;
+  height: 100%;
+  min-height: 0;
   background-color: #ffffff;
   color: #1d2939;
   border-right: 1px solid #e4e7ec;
@@ -221,6 +225,8 @@
   gap: 24px;
   padding: 36px 48px;
   color: #101828;
+  overflow-y: auto;
+  min-height: 0;
 }
 
 .dashboard-content-header {
@@ -331,10 +337,14 @@
 
 @media (max-width: 768px) {
   .dashboard-shell {
+    height: auto;
+    min-height: 100vh;
     flex-direction: column;
+    overflow: visible;
   }
 
   .dashboard-sidebar {
+    height: auto;
     width: 100% !important;
     border-right: none;
     border-bottom: 1px solid #e4e7ec;
@@ -346,6 +356,7 @@
   }
 
   .dashboard-content {
+    overflow: visible;
     padding: 24px 20px;
   }
 }
