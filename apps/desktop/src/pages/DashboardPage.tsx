@@ -1015,44 +1015,6 @@ export default function DashboardPage() {
         const selectedInsight = selected?.insight;
         return (
           <div className="dashboard">
-            {(() => {
-              const summarySelected = selected?.id === SUMMARY_NODE_ID;
-              const headerTitle = summarySelected ? "Inbox overview" : selected?.label ?? "Dashboard";
-              return (
-                <header className="dashboard-header">
-                  <div>
-                    <p className="dashboard-kicker">MailLens</p>
-                    <h1>{headerTitle}</h1>
-                    <p className="dashboard-subtitle">
-                      {activeSource ? (
-                        <>
-                          Active source: <code>{activeSource.path}</code>
-                        </>
-                      ) : (
-                        "No sources ingested yet"
-                      )}
-                    </p>
-                    {activeSource ? (
-                      <p className="dashboard-meta">
-                        Last ingest: {formatTimestamp(activeSource.last_ingest_ts)} · {formatNumber(activeSource.total_emails)} messages indexed
-                      </p>
-                    ) : null}
-                    {!summarySelected && selected ? (
-                      <p className="dashboard-meta">Selected view: {selected.label}</p>
-                    ) : null}
-                  </div>
-                  <div className="dashboard-actions">
-                    <button className="btn btn-primary" type="button" onClick={handleReingest}>
-                      Re-ingest data
-                    </button>
-                    <button className="btn btn-secondary" type="button" disabled>
-                      Add new source
-                    </button>
-                  </div>
-                </header>
-              );
-            })()}
-
             {selectedInsight ? (
               <SenderInsightView insight={selectedInsight} />
             ) : (
