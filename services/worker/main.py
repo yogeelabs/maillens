@@ -204,6 +204,48 @@ def api_insights_first_time_senders(limit: int = 50):
     }
 
 
+@app.get("/insights/senders/top")
+def api_insights_top_senders(limit: int = 50):
+    from db.connection import connect
+
+    con = connect()
+    cur = con.cursor()
+
+    cur.execute(
+        """
+        SELECT from_email,
+               COUNT(*) AS total_emails,
+               MAX(date_ts) AS latest_ts
+        FROM emails
+        WHERE from_email IS NOT NULL
+          AND TRIM(from_email) <> ''
+        GROUP BY from_email
+        ORDER BY total_emails DESC,
+                 latest_ts DESC,
+                 from_email ASC
+        LIMIT ?
+        """,
+        (limit,),
+    )
+    sender_rows = [dict(row) for row in cur.fetchall()]
+
+    unique_senders = len(sender_rows)
+    total_emails = sum(row.get("total_emails") or 0 for row in sender_rows)
+    latest_ts_candidates = [row.get("latest_ts") for row in sender_rows if row.get("latest_ts") is not None]
+    latest_ts = max(latest_ts_candidates) if latest_ts_candidates else None
+
+    con.close()
+    return {
+        "stats": {
+            "unique_senders": unique_senders,
+            "total_emails": total_emails,
+            "latest_ts": latest_ts,
+        },
+        "senders": sender_rows,
+        "emails": [],
+    }
+
+
 @app.get("/insights/senders/by-address")
 def api_insights_senders_by_address(
     address: Optional[List[str]] = Query(default=None),

@@ -10,6 +10,7 @@ import {
   getFirstTimeSenderInsights,
   getDormantSenderInsights,
   getSenderInsightsForAddresses,
+  getTopSenderInsights,
   getStats,
 } from "../lib/api";
 import { type AppMeta, type AppSource, useAppState } from "../store/appState";
@@ -465,6 +466,14 @@ function buildFilters(
     description: "Group views by sender frequency and shared role-based mailboxes.",
     children: [
       {
+        id: "sender-attributes-top",
+        label: "Top senders",
+        description: "Senders with the highest message volume in this workspace.",
+        insight: {
+          kind: "top",
+        },
+      },
+      {
         id: "sender-attributes-frequency",
         label: "Frequency",
         description: "Segment senders by how often they appear in your ingest.",
@@ -657,6 +666,8 @@ function SenderInsightView({ insight, limit = 50 }: SenderInsightViewProps) {
 
   const insightKey = useMemo(() => {
     switch (insight.kind) {
+      case "top":
+        return `top-${limit}`;
       case "first-time":
         return "first-time";
       case "dormant":
@@ -666,7 +677,7 @@ function SenderInsightView({ insight, limit = 50 }: SenderInsightViewProps) {
       default:
         return "unknown";
     }
-  }, [insight.kind, addressesKey, inactiveDays]);
+  }, [insight.kind, addressesKey, inactiveDays, limit]);
 
   useEffect(() => {
     setActiveTab("stats");
@@ -683,7 +694,9 @@ function SenderInsightView({ insight, limit = 50 }: SenderInsightViewProps) {
       setError(null);
       try {
         let insightData: SenderInsight;
-        if (insight.kind === "first-time") {
+        if (insight.kind === "top") {
+          insightData = await getTopSenderInsights(limit);
+        } else if (insight.kind === "first-time") {
           insightData = await getFirstTimeSenderInsights(limit);
         } else if (insight.kind === "dormant") {
           insightData = await getDormantSenderInsights(limit, inactiveDays);
@@ -724,8 +737,14 @@ function SenderInsightView({ insight, limit = 50 }: SenderInsightViewProps) {
 
   const hasEmails = data.emails.length > 0;
   const hasSenders = data.senders.length > 0;
+  const supportsEmails = insight.kind !== "top";
   const statsConfig = (() => {
     switch (insight.kind) {
+      case "top":
+        return {
+          sendersLabel: "Top senders",
+          emailsLabel: "Total emails",
+        };
       case "first-time":
         return {
           sendersLabel: "First-time senders",
@@ -746,6 +765,11 @@ function SenderInsightView({ insight, limit = 50 }: SenderInsightViewProps) {
 
   const panelTitles = (() => {
     switch (insight.kind) {
+      case "top":
+        return {
+          stats: "Top senders",
+          emails: "",
+        };
       case "first-time":
         return {
           stats: "First-time senders",
@@ -767,6 +791,8 @@ function SenderInsightView({ insight, limit = 50 }: SenderInsightViewProps) {
 
   const helperNote = (() => {
     switch (insight.kind) {
+      case "top":
+        return "Sorted by message volume. Showing the top 50 senders.";
       case "first-time":
         return "Senders whose first message appeared in this workspace.";
       case "dormant":
@@ -783,14 +809,18 @@ function SenderInsightView({ insight, limit = 50 }: SenderInsightViewProps) {
       ? "No first-time senders found yet."
       : insight.kind === "dormant"
         ? "No dormant senders detected."
-        : "No matching senders found.";
+        : insight.kind === "top"
+          ? "No senders found yet."
+          : "No matching senders found.";
 
   const emptyEmailsMessage =
     insight.kind === "first-time"
       ? "No emails from first-time senders found."
       : insight.kind === "dormant"
         ? "No historical emails for dormant senders."
-        : "No emails matched this sender group.";
+        : insight.kind === "top"
+          ? "Email list unavailable for top senders view."
+          : "No emails matched this sender group.";
 
   const tabButtonClass = (tab: "stats" | "emails") =>
     `btn ${activeTab === tab ? "btn-secondary" : "btn-ghost"}`;
@@ -805,9 +835,11 @@ function SenderInsightView({ insight, limit = 50 }: SenderInsightViewProps) {
           <button type="button" className="btn btn-secondary" disabled>
             Stats
           </button>
-          <button type="button" className="btn btn-ghost" disabled>
-            Emails
-          </button>
+          {supportsEmails ? (
+            <button type="button" className="btn btn-ghost" disabled>
+              Emails
+            </button>
+          ) : null}
         </div>
         <section className="dashboard-panels">
           <div className="dashboard-panel">
@@ -833,9 +865,11 @@ function SenderInsightView({ insight, limit = 50 }: SenderInsightViewProps) {
           <button type="button" className="btn btn-secondary" disabled>
             Stats
           </button>
-          <button type="button" className="btn btn-ghost" disabled>
-            Emails
-          </button>
+          {supportsEmails ? (
+            <button type="button" className="btn btn-ghost" disabled>
+              Emails
+            </button>
+          ) : null}
         </div>
         <section className="dashboard-panels">
           <div className="dashboard-panel">
@@ -873,17 +907,19 @@ function SenderInsightView({ insight, limit = 50 }: SenderInsightViewProps) {
         >
           Stats
         </button>
-        <button
-          type="button"
-          className={tabButtonClass("emails")}
-          role="tab"
-          aria-selected={activeTab === "emails"}
-          onClick={() => setActiveTab("emails")}
-        >
-          Emails
-        </button>
+        {supportsEmails ? (
+          <button
+            type="button"
+            className={tabButtonClass("emails")}
+            role="tab"
+            aria-selected={activeTab === "emails"}
+            onClick={() => setActiveTab("emails")}
+          >
+            Emails
+          </button>
+        ) : null}
       </div>
-      {activeTab === "stats" ? (
+      {activeTab === "stats" || !supportsEmails ? (
         <>
           <section className="stats-grid">
             {data.stats.total_emails > 0 || data.stats.unique_senders > 0 ? (

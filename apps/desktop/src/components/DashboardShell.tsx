@@ -35,6 +35,10 @@ export type FilterNodeInsight =
   | {
       kind: "address-group";
       addresses: string[];
+    }
+  | {
+      kind: "top";
+      limit?: number;
     };
 
 type DashboardShellProps = {

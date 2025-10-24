@@ -140,3 +140,8 @@ export async function getSenderInsightsForAddresses(
   }
   return request<SenderInsight>(`/insights/senders/by-address?${query.toString()}`, { method: "GET" });
 }
+
+export async function getTopSenderInsights(limit = 50): Promise<SenderInsight> {
+  const query = new URLSearchParams({ limit: String(limit) });
+  return request<SenderInsight>(`/insights/senders/top?${query.toString()}`, { method: "GET" });
+}
