@@ -1,3 +1,4 @@
+import json
 import time
 
 from fastapi import Body, FastAPI, HTTPException, Query
@@ -244,6 +245,140 @@ def api_insights_top_senders(limit: int = 50):
         "senders": sender_rows,
         "emails": [],
     }
+
+
+def _parse_recipient_addresses(row) -> list[str]:
+    unique: list[str] = []
+    seen: set[str] = set()
+    for key in ("to_json", "cc_json"):
+        raw = row[key]
+        if not raw:
+            continue
+        try:
+            entries = json.loads(raw)
+        except Exception:
+            continue
+        if isinstance(entries, str):
+            entries = [entries]
+        for value in entries:
+            if not isinstance(value, str):
+                continue
+            clean = value.strip()
+            if clean and clean not in seen:
+                seen.add(clean)
+                unique.append(clean)
+    return unique
+
+
+def _collect_recipient_insight(limit: int, matches_fn):
+    from db.connection import connect
+
+    con = connect()
+    cur = con.cursor()
+    cur.execute(
+        """
+        SELECT id, date_ts, from_email, subject, snippet, to_json, cc_json
+        FROM emails
+        ORDER BY date_ts DESC, id DESC
+        """
+    )
+    rows = cur.fetchall()
+    con.close()
+
+    recipients: dict[str, dict[str, int | None]] = {}
+    emails: list[dict] = []
+    total_emails = 0
+    latest_ts: int | None = None
+
+    for row in rows:
+        addresses = _parse_recipient_addresses(row)
+        count = len(addresses)
+        if count == 0 or not matches_fn(count):
+            continue
+
+        total_emails += 1
+        ts = row["date_ts"]
+        if ts is not None:
+            latest_ts = ts if latest_ts is None else max(latest_ts, ts)
+
+        if len(emails) < limit:
+            emails.append(
+                {
+                    "id": row["id"],
+                    "date_ts": row["date_ts"],
+                    "from_email": row["from_email"],
+                    "subject": row["subject"],
+                    "snippet": row["snippet"],
+                }
+            )
+
+        for address in addresses:
+            entry = recipients.setdefault(
+                address,
+                {
+                    "total_emails": 0,
+                    "latest_ts": None,
+                },
+            )
+            entry["total_emails"] = int(entry["total_emails"]) + 1
+            if ts is not None:
+                latest_entry_ts = entry["latest_ts"]
+                entry["latest_ts"] = ts if latest_entry_ts is None else max(int(latest_entry_ts), ts)
+
+    sorted_recipients = sorted(
+        (
+            {
+                "address": address,
+                "total_emails": int(values["total_emails"]),
+                "latest_ts": values["latest_ts"],
+            }
+            for address, values in recipients.items()
+        ),
+        key=lambda item: (
+            -item["total_emails"],
+            -(item["latest_ts"] or 0),
+            item["address"],
+        ),
+    )[:limit]
+
+    return {
+        "stats": {
+            "unique_recipients": len(recipients),
+            "total_emails": total_emails,
+            "latest_ts": latest_ts,
+        },
+        "recipients": sorted_recipients,
+        "emails": emails,
+    }
+
+
+@app.get("/insights/recipients/count-type")
+def api_insights_recipient_count_type(mode: str = Query("single"), limit: int = 50):
+    normalized = (mode or "").strip().lower()
+    if normalized not in {"single", "multiple"}:
+        raise HTTPException(status_code=400, detail="invalid_mode")
+
+    if normalized == "single":
+        matcher = lambda count: count == 1
+    else:
+        matcher = lambda count: count >= 2
+
+    return _collect_recipient_insight(limit=max(1, limit), matches_fn=matcher)
+
+
+@app.get("/insights/recipients/distribution")
+def api_insights_recipient_distribution(bucket: str = Query("small"), limit: int = 50):
+    normalized = (bucket or "").strip().lower()
+    if normalized == "small":
+        matcher = lambda count: 2 <= count <= 5
+    elif normalized == "medium":
+        matcher = lambda count: 6 <= count <= 20
+    elif normalized == "large":
+        matcher = lambda count: count >= 21
+    else:
+        raise HTTPException(status_code=400, detail="invalid_bucket")
+
+    return _collect_recipient_insight(limit=max(1, limit), matches_fn=matcher)
 
 
 @app.get("/insights/senders/by-address")

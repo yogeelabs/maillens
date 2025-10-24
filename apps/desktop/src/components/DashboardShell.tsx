@@ -39,6 +39,16 @@ export type FilterNodeInsight =
   | {
       kind: "top";
       limit?: number;
+    }
+  | {
+      kind: "recipient-count";
+      mode: "single" | "multiple";
+      limit?: number;
+    }
+  | {
+      kind: "recipient-distribution";
+      bucket: "small" | "medium" | "large";
+      limit?: number;
     };
 
 type DashboardShellProps = {

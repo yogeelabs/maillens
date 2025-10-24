@@ -11,6 +11,9 @@ import {
   getDormantSenderInsights,
   getSenderInsightsForAddresses,
   getTopSenderInsights,
+  getRecipientCountInsights,
+  getRecipientDistributionInsights,
+  type RecipientInsight,
   getStats,
 } from "../lib/api";
 import { type AppMeta, type AppSource, useAppState } from "../store/appState";
@@ -536,6 +539,73 @@ function buildFilters(
     ],
   };
 
+  const recipientAttributesNode: FilterNode = {
+    id: "recipient-attributes",
+    label: "Recipient attributes",
+    description: "Understand how messages target individual recipients and distribution lists.",
+    children: [
+      {
+        id: "recipient-count-type",
+        label: "Count & type",
+        description: "Break down messages by total recipient count.",
+        children: [
+          {
+            id: "recipient-count-single",
+            label: "Single recipient",
+            description: "Emails addressed to exactly one recipient.",
+            insight: {
+              kind: "recipient-count",
+              mode: "single",
+            },
+          },
+          {
+            id: "recipient-count-multiple",
+            label: "Multiple recipients",
+            description: "Emails sent to two or more recipients.",
+            insight: {
+              kind: "recipient-count",
+              mode: "multiple",
+            },
+          },
+        ],
+      },
+      {
+        id: "recipient-distribution-size",
+        label: "Distribution list size",
+        description: "Group emails based on how many recipients they include.",
+        children: [
+          {
+            id: "recipient-distribution-small",
+            label: "Small list (2–5 recipients)",
+            description: "Messages with a small distribution list.",
+            insight: {
+              kind: "recipient-distribution",
+              bucket: "small",
+            },
+          },
+          {
+            id: "recipient-distribution-medium",
+            label: "Medium list (6–20 recipients)",
+            description: "Messages sent to mid-sized distributions.",
+            insight: {
+              kind: "recipient-distribution",
+              bucket: "medium",
+            },
+          },
+          {
+            id: "recipient-distribution-large",
+            label: "Large list (21+ recipients)",
+            description: "Messages broadcast to large recipient lists.",
+            insight: {
+              kind: "recipient-distribution",
+              bucket: "large",
+            },
+          },
+        ],
+      },
+    ],
+  };
+
   const teamNode: FilterNode = {
     id: "team-playbooks",
     label: "Team playbooks",
@@ -608,6 +678,7 @@ function buildFilters(
   return [
     summaryNode,
     senderAttributesNode,
+    recipientAttributesNode,
     {
       id: "system-views",
       label: "System views",
@@ -620,7 +691,10 @@ function buildFilters(
 }
 
 type SenderInsightViewProps = {
-  insight: FilterNodeInsight;
+  insight: Extract<
+    FilterNodeInsight,
+    { kind: "first-time" | "dormant" | "address-group" | "top" }
+  >;
   limit?: number;
 };
 
@@ -941,7 +1015,7 @@ function SenderInsightView({ insight, limit = 50 }: SenderInsightViewProps) {
                 <p className="wizard-muted">{helperNote}</p>
               ) : null}
               {hasSenders ? (
-                <table className="dashboard-sender-table">
+                <table className="dashboard-insight-table">
                   <thead>
                     <tr>
                       <th scope="col">Sender</th>
@@ -1003,6 +1077,193 @@ function SenderInsightView({ insight, limit = 50 }: SenderInsightViewProps) {
   );
 }
 
+type RecipientInsightViewProps = {
+  insight: Extract<FilterNodeInsight, { kind: "recipient-count" | "recipient-distribution" }>;
+  limit?: number;
+};
+
+const EMPTY_RECIPIENT_INSIGHT: RecipientInsight = {
+  stats: {
+    unique_recipients: 0,
+    total_emails: 0,
+    latest_ts: null,
+  },
+  recipients: [],
+  emails: [],
+};
+
+function RecipientInsightView({ insight, limit = 50 }: RecipientInsightViewProps) {
+  const effectiveLimit = insight.limit ?? limit;
+  const [data, setData] = useState<RecipientInsight>(EMPTY_RECIPIENT_INSIGHT);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
+
+  const modeKey =
+    insight.kind === "recipient-count" ? insight.mode : insight.bucket;
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      setLoading(true);
+      setError(null);
+      try {
+        let recipientInsight: RecipientInsight;
+        if (insight.kind === "recipient-count") {
+          recipientInsight = await getRecipientCountInsights(insight.mode, effectiveLimit);
+        } else {
+          recipientInsight = await getRecipientDistributionInsights(insight.bucket, effectiveLimit);
+        }
+        if (!cancelled) {
+          setData(recipientInsight);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          console.warn("Recipient insight load failed", err);
+          setError("Unable to load recipient insights. Ensure the MailLens worker is running.");
+          setData(EMPTY_RECIPIENT_INSIGHT);
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    }
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [insight.kind, modeKey, effectiveLimit, reloadKey]);
+
+  const helperNote = useMemo(() => {
+    if (insight.kind === "recipient-count") {
+      return insight.mode === "single"
+        ? "Emails addressed to exactly one recipient."
+        : "Emails sent to two or more recipients.";
+    }
+    switch (insight.bucket) {
+      case "small":
+        return "Emails delivered to small recipient lists (2–5 recipients).";
+      case "medium":
+        return "Emails delivered to medium-sized distributions (6–20 recipients).";
+      case "large":
+        return "Emails broadcast to large recipient lists (21 or more recipients).";
+      default:
+        return "";
+    }
+  }, [insight]);
+
+  const panelTitle = useMemo(() => {
+    if (insight.kind === "recipient-count") {
+      return insight.mode === "single"
+        ? "Single recipient addresses"
+        : "Multi-recipient addresses";
+    }
+    switch (insight.bucket) {
+      case "small":
+        return "Small distribution recipients";
+      case "medium":
+        return "Medium distribution recipients";
+      case "large":
+        return "Large distribution recipients";
+      default:
+        return "Recipient breakdown";
+    }
+  }, [insight]);
+
+  const emptyRecipientsMessage =
+    data.stats.total_emails === 0
+      ? "No recipient activity found for this view."
+      : "No recipient details available.";
+
+  if (loading) {
+    return (
+      <section className="dashboard-panels">
+        <div className="dashboard-panel">
+          <div className="dashboard-panel-header">
+            <h2>Loading recipient insight…</h2>
+          </div>
+          <p className="wizard-muted">
+            Analysing recipient patterns. This may take a moment for larger mailboxes.
+          </p>
+        </div>
+      </section>
+    );
+  }
+
+  if (error) {
+    return (
+      <section className="dashboard-panels">
+        <div className="dashboard-panel">
+          <div className="dashboard-panel-header">
+            <h2>Insights unavailable</h2>
+          </div>
+          <p className="dashboard-error">{error}</p>
+          <button
+            type="button"
+            className="btn btn-secondary"
+            onClick={() => setReloadKey(prev => prev + 1)}
+          >
+            Retry
+          </button>
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <>
+      <section className="stats-grid">
+        {data.stats.total_emails > 0 || data.stats.unique_recipients > 0 ? (
+          <>
+            <StatCard label="Unique recipients" value={formatNumber(data.stats.unique_recipients)} />
+            <StatCard label="Total emails" value={formatNumber(data.stats.total_emails)} />
+            <StatCard label="Latest activity" value={formatTimestamp(data.stats.latest_ts)} />
+          </>
+        ) : (
+          <div className="dashboard-placeholder">No matching recipient data yet.</div>
+        )}
+      </section>
+      <section className="dashboard-panels">
+        <div className="dashboard-panel">
+          <div className="dashboard-panel-header">
+            <h2>{panelTitle}</h2>
+          </div>
+          {helperNote ? <p className="wizard-muted">{helperNote}</p> : null}
+          {data.recipients.length ? (
+            <table className="dashboard-insight-table">
+              <thead>
+                <tr>
+                  <th scope="col">Recipient</th>
+                  <th scope="col">Total emails</th>
+                  <th scope="col">Latest</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.recipients.map((recipient, index) => (
+                  <tr
+                    key={
+                      recipient.address
+                        ? `recipient-${recipient.address}`
+                        : `recipient-${index}`
+                    }
+                  >
+                    <th scope="row">{recipient.address || "Unknown recipient"}</th>
+                    <td>{formatNumber(recipient.total_emails)}</td>
+                    <td>{formatTimestamp(recipient.latest_ts)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : (
+            <p className="wizard-muted">{emptyRecipientsMessage}</p>
+          )}
+        </div>
+      </section>
+    </>
+  );
+}
+
 export default function DashboardPage() {
   const navigate = useNavigate();
   const { meta } = useAppState();
@@ -1059,7 +1320,12 @@ export default function DashboardPage() {
         return (
           <div className="dashboard">
             {selectedInsight ? (
-              <SenderInsightView insight={selectedInsight} />
+              selectedInsight.kind === "recipient-count" ||
+              selectedInsight.kind === "recipient-distribution" ? (
+                <RecipientInsightView insight={selectedInsight} />
+              ) : (
+                <SenderInsightView insight={selectedInsight} />
+              )
             ) : (
               <>
                 {error ? <p className="dashboard-error">{error}</p> : null}
