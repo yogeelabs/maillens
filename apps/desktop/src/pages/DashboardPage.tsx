@@ -941,23 +941,30 @@ function SenderInsightView({ insight, limit = 50 }: SenderInsightViewProps) {
                 <p className="wizard-muted">{helperNote}</p>
               ) : null}
               {hasSenders ? (
-                <ul className="dashboard-email-list">
-                  {data.senders.map((sender, index) => (
-                    <li
-                      key={
-                        sender.from_email
-                          ? `sender-${sender.from_email}`
-                          : `sender-${index}`
-                      }
-                    >
-                      <p className="email-subject">{sender.from_email || "Unknown sender"}</p>
-                      <p className="email-meta">
-                        <span>Latest: {formatTimestamp(sender.latest_ts)}</span>
-                        <span>Total emails: {formatNumber(sender.total_emails)}</span>
-                      </p>
-                    </li>
-                  ))}
-                </ul>
+                <table className="dashboard-sender-table">
+                  <thead>
+                    <tr>
+                      <th scope="col">Sender</th>
+                      <th scope="col">Total emails</th>
+                      <th scope="col">Latest</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.senders.map((sender, index) => (
+                      <tr
+                        key={
+                          sender.from_email
+                            ? `sender-${sender.from_email}`
+                            : `sender-${index}`
+                        }
+                      >
+                        <th scope="row">{sender.from_email || "Unknown sender"}</th>
+                        <td>{formatNumber(sender.total_emails)}</td>
+                        <td>{formatTimestamp(sender.latest_ts)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               ) : (
                 <p className="wizard-muted">{emptySendersMessage}</p>
               )}
