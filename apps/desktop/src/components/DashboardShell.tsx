@@ -102,6 +102,7 @@ export default function DashboardShell({
   const [isResizing, setIsResizing] = useState(false);
 
   const appShellRef = useRef<HTMLDivElement | null>(null);
+  const contentRef = useRef<HTMLElement | null>(null);
   const containerOffsetRef = useRef(0);
 
   const nodeMap = useMemo(() => buildNodeMap(filters), [filters]);
@@ -217,6 +218,12 @@ export default function DashboardShell({
     );
   };
 
+  useEffect(() => {
+    if (contentRef.current) {
+      contentRef.current.scrollTop = 0;
+    }
+  }, [selectedId]);
+
   return (
     <div className="dashboard-shell" ref={appShellRef}>
       <aside
@@ -242,7 +249,7 @@ export default function DashboardShell({
       >
         <span className="dashboard-resize-grip" aria-hidden="true" />
       </div>
-      <section className="dashboard-content" aria-live="polite">
+      <section className="dashboard-content" aria-live="polite" ref={contentRef}>
         {selectedNode ? (
           <>
             <div className="dashboard-content-header">
